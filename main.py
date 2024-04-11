@@ -43,7 +43,11 @@ def list_models() -> JSONResponse:
             },
             {
                 "id": "gemini-1.5-pro",
-                "name": "Gemini 1.5 Pro",
+                "name": "(NOT IMPLEMENTED) Gemini 1.5 Pro",
+            },
+            {
+                "id": "gemini-1.5-pro-preview-0409",
+                "name": "Gemini 1.5 Pro Preview 0409"
             }
         ]
     }
