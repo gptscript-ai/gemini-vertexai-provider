@@ -51,31 +51,17 @@ def list_models() -> JSONResponse:
 
 
 async def map_tools(req_tools: list | None = None) -> list[Tool] | None:
-    tools: list[Tool] = []
-    if req_tools is not None:
+    function_declarations: list[FunctionDeclaration] = []
+    if req_tools:
         for tool in req_tools:
-            # TODO: determine if this mapping is required or not?
-            # tool["function"]["parameters"]["type_"] = tool["function"]["parameters"].pop("type")
-            # tool["function"]["parameters"]["type_"] = tool["function"]["parameters"]["type_"].upper()
-            #
-            # for prop in tool["function"]["parameters"]["properties"]:
-            #     tool["function"]["parameters"]["properties"][prop]["type_"] = \
-            #         tool["function"]["parameters"]["properties"][prop].pop("type")
-            #
-            #     tool["function"]["parameters"]["properties"][prop]["type_"] = \
-            #         tool["function"]["parameters"]["properties"][prop]["type_"].uper()
-            #     tool["function"]["parameters"]["properties"][prop].pop("description")
-
-            convert_tool = Tool.from_function_declarations(
-                [
-                    FunctionDeclaration(
-                        name=tool["function"]["name"],
-                        parameters=tool["function"]["parameters"],
-                        description=tool["function"]["description"]
-                    )
-                ]
+            function_declarations.append(
+                FunctionDeclaration(
+                    name=tool["function"]["name"],
+                    parameters=tool["function"]["parameters"],
+                    description=tool["function"]["description"]
+                )
             )
-            tools.append(convert_tool)
+        tools: list[Tool] = [Tool.from_function_declarations(function_declarations)]
         return tools
     return None
 
@@ -188,6 +174,10 @@ async def chat_completion(request: Request):
     if max_output_tokens is not None:
         max_output_tokens = float(max_output_tokens)
 
+    log("GEMINI MESSAGES: ", messages)
+    log()
+    log("GEMINI TOOLS: ", tools)
+
     model = GenerativeModel(data["model"])
     try:
         response = model.generate_content(contents=messages,
@@ -204,21 +194,25 @@ async def chat_completion(request: Request):
             return JSONResponse(content=jsonable_encoder(response.to_dict()))
         return StreamingResponse(async_chunk(response), media_type="application/x-ndjson")
     except Exception as e:
+        log("ERROR: ", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 async def async_chunk(chunks: Iterable[GenerationResponse]) -> \
         AsyncIterable[str]:
     for chunk in chunks:
-        chunk = map_streaming_resp(chunk)
-        log("MAPPED CHUNK: ", chunk.json())
+        try:
+            log("UNMAPPED CHUNK: ", chunk)
+            chunk = map_streaming_resp(chunk)
+            log("MAPPED CHUNK: ", chunk.json())
+        except Exception as e:
+            log("ERROR MAPPING CHUNK: ", e)
         yield "data: " + chunk.json() + "\n\n"
 
 
 def map_streaming_resp(chunk: GenerationResponse) -> ChatCompletionChunk:
-    print("CHUNK: ", chunk)
     tool_calls = []
-    if chunk.candidates[0].function_calls is not None:
+    if chunk.candidates[0].function_calls:
         for idx, call in enumerate(chunk.candidates[0].function_calls):
             tool_calls.append({
                 "index": idx,
@@ -230,7 +224,6 @@ def map_streaming_resp(chunk: GenerationResponse) -> ChatCompletionChunk:
                 },
                 "type": "function"
             })
-    content = None
 
     try:
         content = chunk.candidates[0].content.text
