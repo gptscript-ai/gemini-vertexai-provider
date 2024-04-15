@@ -1,4 +1,5 @@
 import json
+import json
 import os
 from typing import AsyncIterable, Iterable
 
@@ -204,75 +205,81 @@ async def chat_completion(request: Request):
 
 async def async_chunk(chunks: Iterable[GenerationResponse]) -> \
         AsyncIterable[str]:
-    for chunk in chunks:
-        try:
-            log("UNMAPPED CHUNK: ", chunk)
-            chunk = map_streaming_resp(chunk)
-            log("MAPPED CHUNK: ", chunk.json())
-        except Exception as e:
-            log("ERROR MAPPING CHUNK: ", e)
-        yield "data: " + chunk.json() + "\n\n"
+    for chunk in list(chunks):
+        log("UNMAPPED CHUNK: ", chunk)
+        mapped_chunk = map_streaming_resp(chunk)
+        if mapped_chunk is None:
+            yield "data: " + json.dumps({}) + "\n\n"
+        log("RESPONSE CHUNK: ", mapped_chunk.model_dump_json())
+        yield "data: " + mapped_chunk.model_dump_json() + "\n\n"
 
 
-def map_streaming_resp(chunk: GenerationResponse) -> ChatCompletionChunk:
+def map_streaming_resp(chunk: GenerationResponse) -> ChatCompletionChunk | None:
     tool_calls = []
-    if chunk.candidates[0].function_calls:
-        for idx, call in enumerate(chunk.candidates[0].function_calls):
-            tool_calls.append({
-                "index": idx,
-                # TODO: is this required?
-                "id": call.name + "_" + str(idx),
-                "function": {
-                    "name": call.name,
-                    "arguments": json.dumps(dict(call.args))
-                },
-                "type": "function"
-            })
+    if len(chunk.candidates) > 0:
+        if len(chunk.candidates[0].function_calls) > 0:
+            for idx, call in enumerate(chunk.candidates[0].function_calls):
+                args = dict(call.args)
+                for key, value in args.items():
+                    if isinstance(args[key], str):
+                        args[key] = value.replace('\\', '')
 
-    try:
-        content = chunk.candidates[0].content.text
-    except:
-        content = None
+                tool_calls.append({
+                    "index": idx,
+                    # TODO: is this required?
+                    "id": call.name + "_" + str(idx),
+                    "function": {
+                        "name": call.name,
+                        "arguments": json.dumps(args)
+                    },
+                    "type": "function"
+                })
 
-    match chunk.candidates[0].content.role:
-        case "system":
-            role = "user"
-        case "user":
-            role = "user"
-        case "assistant":
-            role = "model"
-        case "model":
-            role = "assistant"
-        case "function":
-            role = "tool"
-        case _:
-            role = "user"
+        try:
+            content = chunk.candidates[0].content.text
+        except:
+            content = None
 
-    try:
-        finish_reason = map_finish_reason(str(chunk.candidates[0].finish_reason))
-    except KeyError:
-        finish_reason = None
+        match chunk.candidates[0].content.role:
+            case "system":
+                role = "user"
+            case "user":
+                role = "user"
+            case "assistant":
+                role = "model"
+            case "model":
+                role = "assistant"
+            case "function":
+                role = "tool"
+            case _:
+                role = "user"
 
-    log("FINISH_REASON: ", finish_reason)
+        try:
+            finish_reason = map_finish_reason(str(chunk.candidates[0].finish_reason))
+        except KeyError:
+            finish_reason = None
 
-    resp = ChatCompletionChunk(
-        id="0",
-        choices=[
-            Choice(
-                delta=ChoiceDelta(
-                    content=content,
-                    tool_calls=tool_calls,
-                    role=role
-                ),
-                finish_reason=finish_reason,
-                index=0,
-            )
-        ],
-        created=0,
-        model="",
-        object="chat.completion.chunk",
-    )
-    return resp
+        log("FINISH_REASON: ", finish_reason)
+
+        resp = ChatCompletionChunk(
+            id="0",
+            choices=[
+                Choice(
+                    delta=ChoiceDelta(
+                        content=content,
+                        tool_calls=tool_calls,
+                        role=role
+                    ),
+                    finish_reason=finish_reason,
+                    index=0,
+                )
+            ],
+            created=0,
+            model="",
+            object="chat.completion.chunk",
+        )
+        return resp
+    return None
 
 
 def map_finish_reason(finish_reason: str) -> str:
@@ -285,10 +292,24 @@ def map_finish_reason(finish_reason: str) -> str:
         return "content_filter"
     elif finish_reason == "STOP":
         return "stop"
-    elif finish_reason == "1":
-        return "stop"
     elif finish_reason == "0":
         return "stop"
+    elif finish_reason == "1":
+        return "stop"
+    elif finish_reason == "2":
+        return "length"
+    elif finish_reason == "3":
+        return "content_filter"
+    elif finish_reason == "4":
+        return "content_filter"
+    elif finish_reason == "5":
+        return "stop"
+    elif finish_reason == "6":
+        return "content_filter"
+    elif finish_reason == "7":
+        return "content_filter"
+    elif finish_reason == "8":
+        return "content_filter"
     return finish_reason
 
 
