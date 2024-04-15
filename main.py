@@ -59,10 +59,24 @@ async def map_tools(req_tools: list | None = None) -> list[Tool] | None:
     function_declarations: list[FunctionDeclaration] = []
     if req_tools:
         for tool in req_tools:
+            parameters = tool['function']['parameters']
+            if parameters is None:
+                parameters = {
+                    "properties":
+                        {
+                            "fake":
+                                {
+                                    "description": "a fake description",
+                                    "type": "string"
+                                }
+                        },
+                    "type": "object"
+                }
+
             function_declarations.append(
                 FunctionDeclaration(
                     name=tool["function"]["name"],
-                    parameters=tool["function"]["parameters"],
+                    parameters=parameters,
                     description=tool["function"]["description"]
                 )
             )
@@ -154,9 +168,9 @@ async def chat_completion(request: Request):
     data = json.loads(data)
 
     req_tools = data.get("tools", None)
-    tools: list[FunctionDeclaration] | None = None
-    if tools is not None:
-        tools  = await map_tools(req_tools)
+    tools: list[Tool] | None = None
+    if req_tools is not None:
+        tools = await map_tools(req_tools)
 
     # TODO: convert messages to gemini messages
     req_messages = data["messages"]
