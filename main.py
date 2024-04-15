@@ -209,7 +209,7 @@ async def async_chunk(chunks: Iterable[GenerationResponse]) -> \
         log("UNMAPPED CHUNK: ", chunk)
         mapped_chunk = map_streaming_resp(chunk)
         if mapped_chunk is None:
-            yield "data: " + json.dumps({}) + "\n\n"
+            continue
         log("RESPONSE CHUNK: ", mapped_chunk.model_dump_json())
         yield "data: " + mapped_chunk.model_dump_json() + "\n\n"
 
