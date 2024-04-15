@@ -155,7 +155,8 @@ async def chat_completion(request: Request):
 
     req_tools = data.get("tools", None)
     tools: list[FunctionDeclaration] | None = None
-    tools = await map_tools(req_tools)
+    if tools is not None:
+        tools  = await map_tools(req_tools)
 
     # TODO: convert messages to gemini messages
     req_messages = data["messages"]
@@ -209,7 +210,7 @@ async def async_chunk(chunks: Iterable[GenerationResponse]) -> \
         log("UNMAPPED CHUNK: ", chunk)
         mapped_chunk = map_streaming_resp(chunk)
         if mapped_chunk is None:
-            continue
+            yield "data: " + json.dumps({}) + "\n\n"
         log("RESPONSE CHUNK: ", mapped_chunk.model_dump_json())
         yield "data: " + mapped_chunk.model_dump_json() + "\n\n"
 
