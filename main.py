@@ -1,8 +1,8 @@
 import json
-import json
 import os
 from typing import AsyncIterable, Iterable
 
+import vertexai.preview.generative_models as generative_models
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -208,7 +208,13 @@ async def chat_completion(request: Request):
                                               top_k=top_k,
                                               top_p=top_p,
                                               max_output_tokens=max_output_tokens,
-                                          )
+                                          ),
+                                          safety_settings={
+                                              generative_models.HarmCategory.HARM_CATEGORY_HATE_SPEECH: generative_models.HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                                              generative_models.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: generative_models.HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                                              generative_models.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: generative_models.HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                                              generative_models.HarmCategory.HARM_CATEGORY_HARASSMENT: generative_models.HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                                          }
                                           )
         if not stream:
             return JSONResponse(content=jsonable_encoder(response.to_dict()))
