@@ -172,7 +172,6 @@ async def chat_completion(request: Request):
     if req_tools is not None:
         tools = await map_tools(req_tools)
 
-    # TODO: convert messages to gemini messages
     req_messages = data["messages"]
     messages = await map_messages(req_messages)
 
@@ -247,7 +246,6 @@ def map_streaming_resp(chunk: GenerationResponse) -> ChatCompletionChunk | None:
 
                 tool_calls.append({
                     "index": idx,
-                    # TODO: is this required?
                     "id": call.name + "_" + str(idx),
                     "function": {
                         "name": call.name,
@@ -276,7 +274,10 @@ def map_streaming_resp(chunk: GenerationResponse) -> ChatCompletionChunk | None:
                 role = "user"
 
         try:
-            finish_reason = map_finish_reason(str(chunk.candidates[0].finish_reason))
+            if len(tool_calls) > 0:
+                finish_reason = "tool_calls"
+            else:
+                finish_reason = map_finish_reason(str(chunk.candidates[0].finish_reason))
         except KeyError:
             finish_reason = None
 
@@ -304,7 +305,6 @@ def map_streaming_resp(chunk: GenerationResponse) -> ChatCompletionChunk | None:
 
 
 def map_finish_reason(finish_reason: str) -> str:
-    # openai supports 5 stop sequences - 'stop', 'length', 'function_call', 'content_filter', 'null'
     if (finish_reason == "ERROR"):
         return "stop"
     elif (finish_reason == "FINISH_REASON_UNSPECIFIED" or finish_reason == "STOP"):
@@ -331,6 +331,8 @@ def map_finish_reason(finish_reason: str) -> str:
         return "content_filter"
     elif finish_reason == "8":
         return "content_filter"
+    # elif finish_reason == None:
+    #     return "tool_calls"
     return finish_reason
 
 
