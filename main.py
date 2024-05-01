@@ -217,39 +217,40 @@ async def chat_completion(request: Request):
                                           )
         if not stream:
             return JSONResponse(content=jsonable_encoder(response.to_dict()))
-        return StreamingResponse(async_chunk(response), media_type="application/x-ndjson")
+        return StreamingResponse(async_chunk(data['model'], response), media_type="application/x-ndjson")
     except Exception as e:
         log("ERROR: ", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def async_chunk(chunks: Iterable[GenerationResponse]) -> \
-        AsyncIterable[str]:
+async def async_chunk(model: str, chunks: Iterable[GenerationResponse]) -> AsyncIterable[str]:
     for chunk in list(chunks):
         log("UNMAPPED CHUNK: ", chunk)
-        mapped_chunk = map_streaming_resp(chunk)
+        mapped_chunk = map_streaming_resp(model, chunk)
         if mapped_chunk is None:
             yield "data: " + json.dumps({}) + "\n\n"
-        log("RESPONSE CHUNK: ", mapped_chunk.model_dump_json())
-        yield "data: " + mapped_chunk.model_dump_json() + "\n\n"
+        else:
+            log("RESPONSE CHUNK: ", mapped_chunk.model_dump_json())
+            yield "data: " + mapped_chunk.model_dump_json() + "\n\n"
 
 
-def map_streaming_resp(chunk: GenerationResponse) -> ChatCompletionChunk | None:
+def map_streaming_resp(model: str, chunk: GenerationResponse) -> ChatCompletionChunk | None:
     tool_calls = []
     if len(chunk.candidates) > 0:
         if len(chunk.candidates[0].function_calls) > 0:
-            for idx, call in enumerate(chunk.candidates[0].function_calls):
-                args = dict(call.args)
-                for key, value in args.items():
-                    if isinstance(args[key], str):
-                        args[key] = value.replace('\\', '')
+            parts = chunk.candidates[0].to_dict().get('content', {}).get('parts', [])
+
+            for idx, part in enumerate(parts):
+                call = part.get('function_call', None)
+                if not call:
+                    continue
 
                 tool_calls.append({
                     "index": idx,
-                    "id": call.name + "_" + str(idx),
+                    "id": call['name'] + "_" + str(idx),
                     "function": {
-                        "name": call.name,
-                        "arguments": json.dumps(args)
+                        "name": call['name'],
+                        "arguments": json.dumps(call['args'])
                     },
                     "type": "function"
                 })
@@ -297,10 +298,11 @@ def map_streaming_resp(chunk: GenerationResponse) -> ChatCompletionChunk | None:
                 )
             ],
             created=0,
-            model="",
+            model=model,
             object="chat.completion.chunk",
         )
         return resp
+
     return None
 
 
