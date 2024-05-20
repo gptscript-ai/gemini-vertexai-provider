@@ -3,6 +3,7 @@ import os
 from typing import AsyncIterable, Iterable
 
 import vertexai.preview.generative_models as generative_models
+from typing import List
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -55,34 +56,37 @@ def list_models() -> JSONResponse:
     return JSONResponse(content=content)
 
 
-async def map_tools(req_tools: list | None = None) -> list[Tool] | None:
-    function_declarations: list[FunctionDeclaration] = []
-    if req_tools:
-        for tool in req_tools:
-            parameters = tool['function']['parameters']
-            if parameters is None:
-                parameters = {
-                    "properties":
-                        {
-                            "fake":
-                                {
-                                    "description": "a fake description",
-                                    "type": "string"
-                                }
-                        },
-                    "type": "object"
-                }
+async def map_tools(req_tools: List | None = None) -> List[Tool] | None:
+    if req_tools is None or len(req_tools) < 1:
+        return None
 
-            function_declarations.append(
-                FunctionDeclaration(
-                    name=tool["function"]["name"],
-                    parameters=parameters,
-                    description=tool["function"]["description"]
-                )
+    function_declarations = []
+    for tool in req_tools:
+        parameters = tool['function']['parameters']
+        if parameters is None:
+            parameters = {
+                "properties":
+                    {
+                        "fake":
+                            {
+                                "description": "a fake description",
+                                "type": "string"
+                            }
+                    },
+                "type": "object"
+            }
+
+        function_declarations.append(
+            FunctionDeclaration(
+                name=tool["function"]["name"],
+                description=tool["function"]["description"],
+                parameters=parameters,
             )
-        tools: list[Tool] = [Tool.from_function_declarations(function_declarations)]
-        return tools
-    return None
+        )
+
+    tools: list["Tool"] = [Tool.from_function_declarations(function_declarations)]
+
+    return tools
 
 
 def merge_consecutive_dicts_with_same_value(list_of_dicts, key) -> list[dict]:
@@ -93,8 +97,6 @@ def merge_consecutive_dicts_with_same_value(list_of_dicts, key) -> list[dict]:
         value_to_match = current_dict.get(key)
         compared_index = index + 1
         while compared_index < len(list_of_dicts) and list_of_dicts[compared_index].get(key) == value_to_match:
-            log("CURRENT DICT: ", current_dict)
-            log("COMPARED DICT: ", list_of_dicts[compared_index])
             list_of_dicts[compared_index]["content"] = current_dict["content"] + "\n" + list_of_dicts[compared_index][
                 "content"]
             current_dict.update(list_of_dicts[compared_index])
@@ -156,9 +158,10 @@ async def map_messages(req_messages: list) -> list[Content] | None:
                     role=message['role'],
                     parts=[Part.from_text(message["content"])]
                 )
-
             messages.append(convert_message)
+
         return messages
+
     return None
 
 
@@ -193,48 +196,48 @@ async def chat_completion(request: Request):
     if max_output_tokens is not None:
         max_output_tokens = float(max_output_tokens)
 
-    log("GEMINI MESSAGES: ", messages)
     log()
     log("GEMINI TOOLS: ", tools)
 
     model = GenerativeModel(data["model"])
     try:
-        response = model.generate_content(contents=messages,
-                                          tools=tools,
-                                          stream=stream,
-                                          generation_config=GenerationConfig(
-                                              temperature=temperature,
-                                              top_k=top_k,
-                                              top_p=top_p,
-                                              max_output_tokens=max_output_tokens,
-                                          ),
-                                          safety_settings={
-                                              generative_models.HarmCategory.HARM_CATEGORY_HATE_SPEECH: generative_models.HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                                              generative_models.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: generative_models.HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                                              generative_models.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: generative_models.HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                                              generative_models.HarmCategory.HARM_CATEGORY_HARASSMENT: generative_models.HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                                          }
-                                          )
+        response = model.generate_content(
+            contents=messages,
+            tools=tools,
+            generation_config=GenerationConfig(
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+                candidate_count=1,
+                max_output_tokens=max_output_tokens,
+            ),
+            safety_settings={
+                generative_models.HarmCategory.HARM_CATEGORY_HATE_SPEECH: generative_models.HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                generative_models.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: generative_models.HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                generative_models.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: generative_models.HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                generative_models.HarmCategory.HARM_CATEGORY_HARASSMENT: generative_models.HarmBlockThreshold.BLOCK_ONLY_HIGH,
+            }
+        )
         if not stream:
-            return JSONResponse(content=jsonable_encoder(response.to_dict()))
-        return StreamingResponse(async_chunk(data['model'], response), media_type="application/x-ndjson")
+            return JSONResponse(content=jsonable_encoder(response))
+
+        return StreamingResponse(to_chunk(data['model'], response), media_type="application/x-ndjson")
+
     except Exception as e:
         log("ERROR: ", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def async_chunk(model: str, chunks: Iterable[GenerationResponse]) -> AsyncIterable[str]:
-    for chunk in list(chunks):
-        log("UNMAPPED CHUNK: ", chunk)
-        mapped_chunk = map_streaming_resp(model, chunk)
-        if mapped_chunk is None:
-            yield "data: " + json.dumps({}) + "\n\n"
-        else:
-            log("RESPONSE CHUNK: ", mapped_chunk.model_dump_json())
-            yield "data: " + mapped_chunk.model_dump_json() + "\n\n"
+async def to_chunk(model: str, response: GenerationResponse) -> AsyncIterable[str]:
+    mapped_chunk = map_resp(model, response)
+    if mapped_chunk is None:
+        yield "data: " + json.dumps({}) + "\n\n"
+    else:
+        log("RESPONSE CHUNK: ", mapped_chunk.model_dump_json())
+        yield "data: " + mapped_chunk.model_dump_json() + "\n\n"
 
 
-def map_streaming_resp(model: str, chunk: GenerationResponse) -> ChatCompletionChunk | None:
+def map_resp(model: str, chunk: GenerationResponse) -> ChatCompletionChunk | None:
     tool_calls = []
     if len(chunk.candidates) > 0:
         if len(chunk.candidates[0].function_calls) > 0:
