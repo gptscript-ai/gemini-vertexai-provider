@@ -2,6 +2,7 @@ import json
 import os
 from typing import AsyncIterable, Iterable
 
+import google.auth.exceptions
 import vertexai.preview.generative_models as generative_models
 from typing import List
 from fastapi import FastAPI, HTTPException, Request
@@ -132,9 +133,9 @@ async def map_messages(req_messages: list) -> list[Content] | None:
                 convert_message = Content(
                     role=message['role'],
                     parts=[Part.from_function_response(
-                        name='test',
+                        name=message.get('name', ''),
                         response={
-                            'name': message['name'],
+                            'name': message.get('name', ''),
                             'content': message['content']
                         },
                     )]
@@ -198,8 +199,15 @@ async def chat_completion(request: Request):
 
     log()
     log("GEMINI TOOLS: ", tools)
-
-    model = GenerativeModel(data["model"])
+    try:
+        model = GenerativeModel(data["model"])
+    except google.auth.exceptions.GoogleAuthError as e:
+        log("AUTH ERROR: ", e)
+        raise HTTPException(status_code=401, detail="Authentication error. Please ensure you are properly authenticated with GCP and have the correct project configured.")
+    except Exception as e:
+        log("ERROR: ", e)
+        log(type(e))
+        raise HTTPException(status_code=500, detail=str(e))
     try:
         response = model.generate_content(
             contents=messages,
