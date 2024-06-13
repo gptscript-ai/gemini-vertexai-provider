@@ -1,10 +1,9 @@
 import json
 import os
-from typing import AsyncIterable, Iterable
+from typing import AsyncIterable, List
 
 import google.auth.exceptions
 import vertexai.preview.generative_models as generative_models
-from typing import List
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -44,10 +43,10 @@ def list_models() -> JSONResponse:
                 "id": "gemini-1.0-pro",
                 "name": "Gemini 1.0 Pro",
             },
-            # {
-            #     "id": "gemini-1.5-pro",
-            #     "name": "(NOT IMPLEMENTED) Gemini 1.5 Pro",
-            # },
+            {
+                "id": "gemini-1.5-pro",
+                "name": "Gemini 1.5 Pro",
+            },
             {
                 "id": "gemini-1.5-pro-preview-0409",
                 "name": "Gemini 1.5 Pro Preview 0409"
@@ -63,19 +62,10 @@ async def map_tools(req_tools: List | None = None) -> List[Tool] | None:
 
     function_declarations = []
     for tool in req_tools:
-        parameters = tool['function']['parameters']
-        if parameters is None:
-            parameters = {
-                "properties":
-                    {
-                        "fake":
-                            {
-                                "description": "a fake description",
-                                "type": "string"
-                            }
-                    },
-                "type": "object"
-            }
+        parameters = tool['function'].get('parameters', {
+            "properties": {},
+            "type": "object"
+        })
 
         function_declarations.append(
             FunctionDeclaration(
@@ -112,6 +102,24 @@ async def map_messages(req_messages: list) -> list[Content] | None:
     log(req_messages)
 
     if req_messages is not None:
+        system: str = """
+You are a task oriented system.
+Be as brief as possible when answering the user.
+Only give the required answer.
+Do not give your thought process.
+Use functions or tools as needed to complete the tasks given to you.
+You are referred to as a tool.
+Do not call functions or tools unless you need to.
+Ensure you are passing the correct arguments to the functions or tools you call.
+Do not move on to the next task until the current task is completed.
+Do not make up arguments for tools.
+Call functions one at a time to make sure you have the correct inputs.
+"""
+        req_messages = [
+                           {"role": "system", "content": system},
+                           {"role": "model", "content": "Understood."}
+                       ] + req_messages
+
         for message in req_messages:
             match message["role"]:
                 case "system":
@@ -203,7 +211,8 @@ async def chat_completion(request: Request):
         model = GenerativeModel(data["model"])
     except google.auth.exceptions.GoogleAuthError as e:
         log("AUTH ERROR: ", e)
-        raise HTTPException(status_code=401, detail="Authentication error. Please ensure you are properly authenticated with GCP and have the correct project configured.")
+        raise HTTPException(status_code=401,
+                            detail="Authentication error. Please ensure you are properly authenticated with GCP and have the correct project configured.")
     except Exception as e:
         log("ERROR: ", e)
         log(type(e))
