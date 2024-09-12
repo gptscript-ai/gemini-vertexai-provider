@@ -19,11 +19,9 @@ Run using the following commands
 python -m venv .venv
 source ./.venv/bin/activate
 pip install -r requirements.txt
-./run.sh
+DEBUG=true ./run.sh
 ```
 
 ```
-export OPENAI_BASE_URL=http://127.0.0.1:8000/v1
-export GPTSCRIPT_DEBUG=true
-gptscript --default-model=gemini-1.0-pro examples/bob.gpt
+gptscript --default-model='gemini-1.0-pro from http://127.0.0.1:8000/v1' examples/bob.gpt
 ```
